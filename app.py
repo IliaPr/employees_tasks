@@ -16,8 +16,8 @@ app = FastAPI(
     description="This application allows you to create tasks for employees, assign performers and define important "
                 "tasks with the employee recommended for completion",
     version="1.0.0",
-    openapi_url="/api/v1/openapi.json",  # Указываем URL для OpenAPI схемы
-    docs_url="/api/docs",  # Указываем URL для документации Swagger UI
+    openapi_url="/api/v1/openapi.json",
+    docs_url="/api/docs",
     redoc_url=None,
 )
 
