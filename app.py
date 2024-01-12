@@ -2,12 +2,11 @@
 from fastapi import FastAPI, HTTPException, Depends, APIRouter
 from pydantic import BaseModel
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
 from datetime import datetime
 from database import engine, SessionLocal
 from models import Base, Employee, Task
-from sqlalchemy.orm import joinedload
 
 Base.metadata.create_all(bind=engine)
 
@@ -82,6 +81,12 @@ class EmployeeWithTasks(EmployeeModel):
     tasks: List[TaskModel]  # Добавляем поле для хранения задач
 
 
+class ImportantTaskResponse(BaseModel):
+    name: str
+    deadline: str
+    assigned_employees: List[str]
+
+
 # Операции CRUD для сотрудников
 @app.post("/employees/", response_model=EmployeeModel)
 def create_employee(employee: EmployeeModel, db: Session = Depends(get_db)):
@@ -127,7 +132,7 @@ def delete_task(task_id: int, db: Session = Depends(get_db)):
 
 
 # Эндпоинт для "Важных задач"
-@app.get("/important_tasks/", response_model=List[AssignedTask])
+@app.get("/important_tasks/", response_model=List[ImportantTaskResponse])
 def important_tasks(db: Session = Depends(get_db)):
     # Найти родительскую задачу без исполнителя
     parent_task = (
@@ -139,26 +144,17 @@ def important_tasks(db: Session = Depends(get_db)):
     if not parent_task:
         raise HTTPException(status_code=404, detail="Родительская задача не найдена")
 
-    # Найти сотрудников, не занятых и отсортированных по возрастанию количества задач
+    # Найти сотрудников, отсортированных по возрастанию количества задач
     employees = (
         db.query(Employee)
-        .filter(Employee.is_busy == False)
         .outerjoin(Employee.tasks)
         .group_by(Employee.id)
         .order_by(func.count(Task.id))
         .all()
     )
 
-    if not employees:
-        raise HTTPException(status_code=404, detail="Нет доступных сотрудников")
-
     # Выбрать наименее и более загруженных сотрудников
     least_busy_employee = employees[0]
-    more_busy_employee = employees[-1]  # Последний в списке - самый загруженный
-
-    # Проверить условие по максимальному количеству задач
-    least_busy_tasks_count = len(least_busy_employee.tasks) if least_busy_employee.tasks else 0
-    more_busy_tasks_count = len(more_busy_employee.tasks) if more_busy_employee.tasks else 0
 
     # Найти сотрудника, который уже выполняет родительскую задачу
     current_executor = (
@@ -168,30 +164,26 @@ def important_tasks(db: Session = Depends(get_db)):
         .first()
     )
 
-    assigned_tasks = []
-
-    if current_executor and least_busy_tasks_count + 2 <= more_busy_tasks_count:
+    if current_executor and len(current_executor.tasks) + 2 <= len(least_busy_employee.tasks):
         # Если текущий исполнитель удовлетворяет условиям, то оставляем его
-        assigned_tasks.append(
-            AssignedTask(
-                employee_name=current_executor.name,
-                task_name=parent_task.name,
-                task_id=parent_task.id,
-                employee_id=current_executor.id,
+        response = [
+            ImportantTaskResponse(
+                name=parent_task.name,
+                deadline=str(parent_task.deadline),
+                assigned_employees=[current_executor.name],
             )
-        )
+        ]
     else:
         # В противном случае, выбираем наименее загруженного сотрудника
-        assigned_tasks.append(
-            AssignedTask(
-                employee_name=least_busy_employee.name,
-                task_name=parent_task.name,
-                task_id=parent_task.id,
-                employee_id=least_busy_employee.id,
+        response = [
+            ImportantTaskResponse(
+                name=parent_task.name,
+                deadline=str(parent_task.deadline),
+                assigned_employees=[least_busy_employee.name],
             )
-        )
+        ]
 
-    return assigned_tasks
+    return response
 
 
 # Endpoint для "Занятых сотрудников" с сортировкой по количеству задач
@@ -211,7 +203,6 @@ def busy_employees(db: Session = Depends(get_db)):
 
     # Создаем список для занятых сотрудников с задачами
     employees_with_tasks = []
-
     for employee in sorted(busy_employees, key=lambda e: len(e.tasks), reverse=True):
         # Проверяем, занят ли сотрудник
         if employee.is_busy:
@@ -233,8 +224,7 @@ def busy_employees(db: Session = Depends(get_db)):
                 position=employee.position,
                 tasks=tasks,
             )
-            employees_with_tasks.append(employee_with_tasks)
-
+        employees_with_tasks.append(employee_with_tasks)
     return employees_with_tasks
 
 
