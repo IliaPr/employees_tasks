@@ -127,43 +127,6 @@ def delete_task(task_id: int, db: Session = Depends(get_db)):
 
 
 # Эндпоинт для "Важных задач"
-@app.get("/important_tasks", response_model=List[AssignedTask])
-def important_tasks(db: Session = Depends(get_db)):
-    important_tasks = db.query(Task).filter(
-        (Task.status != "в работе") & (Task.parent_task_id is not None) & (Task.executor_id is None)
-    ).all()
-
-    result = []
-
-    for task in important_tasks:
-        least_busy_employee = db.query(Employee).outerjoin(Employee.tasks).group_by(Employee.id).order_by(
-            func.count().asc()).first()
-
-        if task.parent_task_id:
-            parent_task_executor = db.query(Employee).join(Employee.tasks).filter(
-                Task.id == task.parent_task_id).first()
-
-            if parent_task_executor:
-                if db.query(func.count()).filter(Task.executor_id == parent_task_executor.id).scalar() <= db.query(
-                        func.count()).filter(Task.executor_id == least_busy_employee.id).scalar() + 2:
-                    executor = parent_task_executor
-                else:
-                    executor = least_busy_employee
-            else:
-                executor = least_busy_employee
-        else:
-            executor = least_busy_employee
-
-        task_info = {
-            "employee_name": executor.name if executor else None,
-            "task_name": task.name
-        }
-
-        result.append(task_info)
-
-    return result
-
-
 @app.get("/important_tasks/", response_model=List[AssignedTask])
 def important_tasks(db: Session = Depends(get_db)):
     # Найти родительскую задачу без исполнителя
