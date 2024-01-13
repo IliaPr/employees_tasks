@@ -1,14 +1,12 @@
 # app.py
 from fastapi import FastAPI, HTTPException, Depends, APIRouter
-from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
-from typing import List, Optional
-from datetime import datetime
+from typing import List
 
 import crud
 import models
-from database import engine, SessionLocal
+from database import engine
 from models import (Base, Employee, Task, EmployeeModel, TaskModel, AssignedTask, EmployeeWithTasks,
                     ImportantTaskResponse)
 from crud import (create_employee, get_employees, delete_employee, create_task, get_tasks, delete_task,
