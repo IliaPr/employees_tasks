@@ -35,7 +35,12 @@ def create_employee_handler(employee: EmployeeModel, db: Session = Depends(get_d
 
 @app.get("/employees/", response_model=List[EmployeeModel])
 def get_employees_handler(db: Session = Depends(get_db)):
-    return get_employees(db)
+    employees = get_employees(db)
+    employee_models = [
+        EmployeeModel(id=str(employee.id), name=employee.name, position=employee.position)
+        for employee in employees
+    ]
+    return employee_models
 
 
 @app.delete("/employees/{employee_id}")
@@ -52,7 +57,21 @@ def create_task_handler(task: TaskModel, db: Session = Depends(get_db)):
 
 @app.get("/tasks/", response_model=List[TaskModel])
 def get_tasks_handler(db: Session = Depends(get_db)):
-    return get_tasks(db)
+    tasks = get_tasks(db)
+    task_models = [
+        TaskModel(
+            id=str(task.id),
+            name=task.name,
+            parent_task_id=task.parent_task_id,
+            executor_id=task.executor_id,
+            deadline=task.deadline,
+            status=task.status,
+            description=task.description,
+        )
+        for task in tasks
+    ]
+
+    return task_models
 
 
 @app.delete("/tasks/{task_id}")
@@ -109,17 +128,15 @@ def important_tasks(db: Session = Depends(get_db)):
             ImportantTaskResponse(
                 name=parent_task.name,
                 deadline=str(parent_task.deadline),
-                assigned_employees=[least_busy_employee.name],
+                assigned_employees=[current_executor.name],
             )
         ]
 
     return response
 
 
-# Endpoint для "Занятых сотрудников" с сортировкой по количеству задач
 @app.get("/busy_employees", response_model=List[EmployeeWithTasks])
 def busy_employees(db: Session = Depends(get_db)):
-    # Используем joinedload для загрузки связанных данных о задачах
     busy_employees = (
         db.query(Employee)
         .options(joinedload(Employee.tasks))
@@ -131,14 +148,12 @@ def busy_employees(db: Session = Depends(get_db)):
     if not busy_employees:
         raise HTTPException(status_code=404, detail="Нет занятых сотрудников")
 
-    # Создаем список для занятых сотрудников с задачами
     employees_with_tasks = []
     for employee in sorted(busy_employees, key=lambda e: len(e.tasks), reverse=True):
-        # Проверяем, занят ли сотрудник
         if employee.is_busy:
             tasks = [
-                Task(
-                    id=task.id,
+                TaskModel(
+                    id=str(task.id),
                     name=task.name,
                     parent_task_id=task.parent_task_id,
                     executor_id=task.executor_id,
@@ -149,14 +164,13 @@ def busy_employees(db: Session = Depends(get_db)):
                 for task in employee.tasks
             ]
             employee_with_tasks = EmployeeWithTasks(
-                id=employee.id,
+                id=str(employee.id),
                 name=employee.name,
                 position=employee.position,
                 tasks=tasks,
             )
         employees_with_tasks.append(employee_with_tasks)
     return employees_with_tasks
-
 
 # Endpoint для назначения исполнителя задаче
 @app.post("/assign_task", response_model=str)
