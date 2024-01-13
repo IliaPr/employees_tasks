@@ -1,9 +1,41 @@
 # models.py
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Boolean
+from datetime import datetime
+from typing import Optional, List
+
+from pydantic import BaseModel
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Boolean, MetaData
 from sqlalchemy.orm import relationship, declarative_base
 
+Base = declarative_base(metadata=MetaData())
 
-Base = declarative_base()
+
+class EmployeeModel(BaseModel):
+    name: str
+    position: str
+
+
+class TaskModel(BaseModel):
+    name: str
+    parent_task_id: Optional[int] = None
+    executor_id: Optional[int] = None
+    deadline: datetime
+    status: str
+    description: Optional[str] = None
+
+
+class AssignedTask(BaseModel):
+    employee_id: int
+    task_id: int
+
+
+class EmployeeWithTasks(EmployeeModel):
+    tasks: List[TaskModel]  # Добавляем поле для хранения задач
+
+
+class ImportantTaskResponse(BaseModel):
+    name: str
+    deadline: str
+    assigned_employees: List[str]
 
 
 class Task(Base):

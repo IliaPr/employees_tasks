@@ -6,7 +6,10 @@ from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
 from datetime import datetime
 from database import engine, SessionLocal
-from models import Base, Employee, Task
+from models import (Base, Employee, Task, EmployeeModel, TaskModel, AssignedTask, EmployeeWithTasks,
+                    ImportantTaskResponse)
+from crud import (create_employee, get_employees, delete_employee, create_task, get_tasks, delete_task,
+                  get_employee_by_id, get_task_by_id, get_db)
 
 Base.metadata.create_all(bind=engine)
 
@@ -24,110 +27,37 @@ app = FastAPI(
 router = APIRouter()
 
 
-@app.get("/items/", summary="Get a list of items", response_model=list)
-async def read_items(skip: int = 0, limit: int = 10):
-    # Your logic to retrieve items goes here
-    items = [{"item_id": i, "item_name": f"Item {i}"} for i in range(skip, skip + limit)]
-    return items
-
-
-# Зависимость для получения сессии базы данных
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
-@router.delete("/cleanup")
-def cleanup_tasks(db: Session = Depends(get_db)):
-    # Удаление задач с определенным статусом (например, "completed")
-    db.query(Task).filter(Task.status == "completed").delete()
-
-    # Удаление всех связанных задач перед удалением сотрудников
-    db.query(Task).delete()
-
-    # Удаление всех сотрудников
-    db.query(Employee).delete()
-
-    db.commit()
-    return {"message": "Очистка выполнена"}
-
-
-app.include_router(router)
-
-
-class EmployeeModel(BaseModel):
-    name: str
-    position: str
-
-
-class TaskModel(BaseModel):
-    name: str
-    parent_task_id: Optional[int] = None
-    executor_id: Optional[int] = None
-    deadline: datetime
-    status: str
-    description: Optional[str] = None
-
-
-class AssignedTask(BaseModel):
-    employee_id: int
-    task_id: int
-
-
-class EmployeeWithTasks(EmployeeModel):
-    tasks: List[TaskModel]  # Добавляем поле для хранения задач
-
-
-class ImportantTaskResponse(BaseModel):
-    name: str
-    deadline: str
-    assigned_employees: List[str]
-
-
 # Операции CRUD для сотрудников
 @app.post("/employees/", response_model=EmployeeModel)
-def create_employee(employee: EmployeeModel, db: Session = Depends(get_db)):
-    db_employee = Employee(**employee.dict())
-    db.add(db_employee)
-    db.commit()
-    db.refresh(db_employee)
-    return db_employee
+def create_employee_handler(employee: EmployeeModel, db: Session = Depends(get_db)):
+    return create_employee(db, employee.dict())
 
 
 @app.get("/employees/", response_model=List[EmployeeModel])
-def get_employees(db: Session = Depends(get_db)):
-    return db.query(Employee).all()
+def get_employees_handler(db: Session = Depends(get_db)):
+    return get_employees(db)
 
 
 @app.delete("/employees/{employee_id}")
-def delete_employee(employee_id: int, db: Session = Depends(get_db)):
-    db.query(Employee).filter(Employee.id == employee_id).delete()
-    db.commit()
+def delete_employee_handler(employee_id: int, db: Session = Depends(get_db)):
+    delete_employee(db, employee_id)
     return {"message": "Сотрудник удален"}
 
 
 # Операции CRUD для задач
 @app.post("/tasks/", response_model=TaskModel)
-def create_task(task: TaskModel, db: Session = Depends(get_db)):
-    db_task = Task(**task.dict())
-    db.add(db_task)
-    db.commit()
-    db.refresh(db_task)
-    return db_task
+def create_task_handler(task: TaskModel, db: Session = Depends(get_db)):
+    return create_task(db, task.dict())
 
 
 @app.get("/tasks/", response_model=List[TaskModel])
-def get_tasks(db: Session = Depends(get_db)):
-    return db.query(Task).all()
+def get_tasks_handler(db: Session = Depends(get_db)):
+    return get_tasks(db)
 
 
 @app.delete("/tasks/{task_id}")
-def delete_task(task_id: int, db: Session = Depends(get_db)):
-    db.query(Task).filter(Task.id == task_id).delete()
-    db.commit()
+def delete_task_handler(task_id: int, db: Session = Depends(get_db)):
+    delete_task(db, task_id)
     return {"message": "Задача удалена"}
 
 
@@ -207,7 +137,7 @@ def busy_employees(db: Session = Depends(get_db)):
         # Проверяем, занят ли сотрудник
         if employee.is_busy:
             tasks = [
-                TaskModel(
+                Task(
                     id=task.id,
                     name=task.name,
                     parent_task_id=task.parent_task_id,

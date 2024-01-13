@@ -33,7 +33,7 @@ Employee Task Management API предоставляет серверное пр�
 5. Запустите FastAPI приложение:
 
     ```bash
-    uvicorn main:app --reload
+    uvicorn app:app --reload
     ```
 
 
