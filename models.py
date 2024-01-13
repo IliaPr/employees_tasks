@@ -10,13 +10,13 @@ Base = declarative_base(metadata=MetaData())
 
 
 class EmployeeModel(BaseModel):
-    id: str
+    id: Optional[str] = None
     name: str
     position: str
 
 
 class TaskModel(BaseModel):
-    id: str
+    id: Optional[str] = None
     name: str
     parent_task_id: Optional[int] = None
     executor_id: Optional[int] = None

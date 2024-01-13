@@ -5,6 +5,9 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
 from datetime import datetime
+
+import crud
+import models
 from database import engine, SessionLocal
 from models import (Base, Employee, Task, EmployeeModel, TaskModel, AssignedTask, EmployeeWithTasks,
                     ImportantTaskResponse)
@@ -28,9 +31,17 @@ router = APIRouter()
 
 
 # Операции CRUD для сотрудников
-@app.post("/employees/", response_model=EmployeeModel)
-def create_employee_handler(employee: EmployeeModel, db: Session = Depends(get_db)):
-    return create_employee(db, employee.dict())
+@app.post("/employees/", response_model=models.EmployeeModel)
+def create_employee_handler(employee: models.EmployeeModel, db: Session = Depends(get_db)):
+    created_employee = crud.create_employee(db, employee.dict())
+    if created_employee is None:
+        raise HTTPException(status_code=500, detail="Failed to create employee")
+
+    return models.EmployeeModel(
+        id=str(created_employee.id),
+        name=created_employee.name,
+        position=created_employee.position
+    )
 
 
 @app.get("/employees/", response_model=List[EmployeeModel])
@@ -49,10 +60,35 @@ def delete_employee_handler(employee_id: int, db: Session = Depends(get_db)):
     return {"message": "Сотрудник удален"}
 
 
-# Операции CRUD для задач
 @app.post("/tasks/", response_model=TaskModel)
 def create_task_handler(task: TaskModel, db: Session = Depends(get_db)):
-    return create_task(db, task.dict())
+    task_data = task.dict()
+
+    # Получаем id последней созданной задачи
+    last_task_id = (
+        db.query(Task)
+        .order_by(Task.id.desc())
+        .first()
+    )
+
+    # Проверяем, что parent_task_id не совпадает с id последней созданной задачи + 1
+    if 'parent_task_id' in task_data and task_data['parent_task_id'] == last_task_id.id + 1:
+        raise HTTPException(status_code=400, detail="Cannot assign task to itself")
+
+    # Создаем новую задачу
+    created_task = create_task(db, task_data)
+    if created_task is None:
+        raise HTTPException(status_code=500, detail="Failed to create task")
+
+    return TaskModel(
+        id=str(created_task.id),
+        name=created_task.name,
+        deadline=str(created_task.deadline),
+        status=created_task.status,
+        description=created_task.description,
+        executor_id=created_task.executor_id,
+        parent_task_id=created_task.parent_task_id,
+    )
 
 
 @app.get("/tasks/", response_model=List[TaskModel])
@@ -81,56 +117,59 @@ def delete_task_handler(task_id: int, db: Session = Depends(get_db)):
 
 
 # Эндпоинт для "Важных задач"
-@app.get("/important_tasks/", response_model=List[ImportantTaskResponse])
+@app.get("/important_tasks/", response_model=List[models.ImportantTaskResponse])
 def important_tasks(db: Session = Depends(get_db)):
-    # Найти родительскую задачу без исполнителя
-    parent_task = (
-        db.query(Task)
-        .filter(Task.parent_task_id.is_(None), Task.executor_id.is_(None), Task.status != "в работе")
-        .first()
-    )
-
-    if not parent_task:
-        raise HTTPException(status_code=404, detail="Родительская задача не найдена")
-
-    # Найти сотрудников, отсортированных по возрастанию количества задач
-    employees = (
-        db.query(Employee)
-        .outerjoin(Employee.tasks)
-        .group_by(Employee.id)
-        .order_by(func.count(Task.id))
+    # Найти все родительские задачи без исполнителя
+    parent_tasks = (
+        db.query(models.Task)
+        .filter(models.Task.parent_task_id.is_(None), models.Task.executor_id.is_(None),
+                models.Task.status != "в работе")
         .all()
     )
 
-    # Выбрать наименее и более загруженных сотрудников
-    least_busy_employee = employees[0]
+    if not parent_tasks:
+        raise HTTPException(status_code=404, detail="Родительские задачи не найдены")
 
-    # Найти сотрудника, который уже выполняет родительскую задачу
-    current_executor = (
-        db.query(Employee)
-        .join(Employee.tasks)
-        .filter(Task.id == parent_task.id)
-        .first()
-    )
+    response = []
 
-    if current_executor and len(current_executor.tasks) + 2 <= len(least_busy_employee.tasks):
-        # Если текущий исполнитель удовлетворяет условиям, то оставляем его
-        response = [
-            ImportantTaskResponse(
+    for parent_task in parent_tasks:
+        # Найти сотрудников, отсортированных по возрастанию количества задач
+        employees = (
+            db.query(models.Employee)
+            .outerjoin(models.Employee.tasks)
+            .group_by(models.Employee.id)
+            .order_by(func.count(models.Task.id))
+            .all()
+        )
+
+        # Найти сотрудника, который уже выполняет текущую родительскую задачу
+        current_executor = (
+            db.query(models.Employee)
+            .join(models.Employee.tasks)
+            .filter(models.Task.id == parent_task.id)
+            .first()
+        )
+
+        # Если текущего исполнителя нет, выбираем наименее загруженного сотрудника
+        if not current_executor:
+            current_executor = employees[0]
+
+        # Назначаем текущего исполнителя для родительской задачи
+        parent_task.executor_id = current_executor.id
+        parent_task.status = "в работе"
+
+        # Обновляем статус is_busy у сотрудника
+        current_executor.is_busy = True
+
+        db.commit()
+
+        response.append(
+            models.ImportantTaskResponse(
                 name=parent_task.name,
                 deadline=str(parent_task.deadline),
                 assigned_employees=[current_executor.name],
             )
-        ]
-    else:
-        # В противном случае, выбираем наименее загруженного сотрудника
-        response = [
-            ImportantTaskResponse(
-                name=parent_task.name,
-                deadline=str(parent_task.deadline),
-                assigned_employees=[current_executor.name],
-            )
-        ]
+        )
 
     return response
 
@@ -169,8 +208,10 @@ def busy_employees(db: Session = Depends(get_db)):
                 position=employee.position,
                 tasks=tasks,
             )
-        employees_with_tasks.append(employee_with_tasks)
+            employees_with_tasks.append(employee_with_tasks)  # Переместить эту строку внутрь цикла
+
     return employees_with_tasks
+
 
 # Endpoint для назначения исполнителя задаче
 @app.post("/assign_task", response_model=str)
