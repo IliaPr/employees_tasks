@@ -1,7 +1,7 @@
 # app.py
 from fastapi import FastAPI, HTTPException, Depends, APIRouter
 from sqlalchemy import func
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, aliased
 from typing import List
 
 import crud
@@ -63,14 +63,14 @@ def create_task_handler(task: TaskModel, db: Session = Depends(get_db)):
     task_data = task.dict()
 
     # Получаем id последней созданной задачи
-    last_task_id = (
+    last_task = (
         db.query(Task)
         .order_by(Task.id.desc())
         .first()
     )
 
     # Проверяем, что parent_task_id не совпадает с id последней созданной задачи + 1
-    if 'parent_task_id' in task_data and task_data['parent_task_id'] == last_task_id.id + 1:
+    if 'parent_task_id' in task_data and last_task and task_data['parent_task_id'] == last_task.id + 1:
         raise HTTPException(status_code=400, detail="Cannot assign task to itself")
 
     # Создаем новую задачу
@@ -143,13 +143,14 @@ def important_tasks(db: Session = Depends(get_db)):
         # Найти сотрудника, который уже выполняет текущую родительскую задачу
         current_executor = (
             db.query(models.Employee)
-            .join(models.Employee.tasks)
-            .filter(models.Task.id == parent_task.id)
+            .join(models.Task, models.Task.executor_id == models.Employee.id)
             .first()
         )
 
-        # Если текущего исполнителя нет, выбираем наименее загруженного сотрудника
-        if not current_executor:
+        if current_executor is not None:
+            if len(current_executor.tasks) - len(employees[0].tasks) > 2:
+                current_executor = employees[0]
+        else:
             current_executor = employees[0]
 
         # Назначаем текущего исполнителя для родительской задачи
@@ -170,8 +171,6 @@ def important_tasks(db: Session = Depends(get_db)):
         )
 
     return response
-
-
 @app.get("/busy_employees", response_model=List[EmployeeWithTasks])
 def busy_employees(db: Session = Depends(get_db)):
     busy_employees = (
