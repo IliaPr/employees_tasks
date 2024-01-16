@@ -8,7 +8,7 @@ Employee Task Management API предоставляет серверное пр�
 1. Клонируйте репозиторий:
 
     ```bash
-    git clone https://github.com/ваш-проект.git
+    git clone https://github.com/IliaPr/employees_tasks.git
     ```
 
 2. Активируйте виртуальное окружение:
