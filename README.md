@@ -1,4 +1,4 @@
-# Employee Task Management API
+# Employee Task Management
 
 Employee Task Management API предоставляет серверное приложение для работы с базой данных
 с задачами для сотрудников организации.
