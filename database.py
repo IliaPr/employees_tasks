@@ -13,7 +13,6 @@ db_host = os.getenv("DB_HOST")
 db_name = os.getenv("DB_NAME")
 db_port = os.getenv("DB_PORT")
 
-# Используйте переменные окружения при создании подключения к базе данных
 database_url = f'postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}'
 
 Base = declarative_base()
